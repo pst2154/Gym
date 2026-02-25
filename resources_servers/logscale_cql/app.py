@@ -45,27 +45,32 @@ from nemo_gym.openai_utils import (
 )
 from nemo_gym.server_utils import get_response_json, raise_for_status
 
-import ray
+try:
+    import ray
+
+    @ray.remote(
+        scheduling_strategy="SPREAD",
+        runtime_env={
+            "py_executable": sys.executable,
+        },
+    )
+    def verify_cql_remote(
+        logscale_url: str,
+        repository: str | None,
+        cql: str,
+    ) -> dict:
+        """Ray-remote CQL validation + execution on a SPREAD-scheduled worker."""
+        from container_engine import LogScaleContainerEngine as _Engine
+        engine = _Engine(base_url=logscale_url, repository=repository)
+        validation = engine.validate_query(cql)
+        exec_result = engine.execute(cql)
+        return {"validation": validation, "exec_result": exec_result}
+
+    _HAS_RAY = True
+except ImportError:
+    _HAS_RAY = False
 
 from container_engine import LogScaleContainerEngine
-
-
-@ray.remote(
-    scheduling_strategy="SPREAD",
-    runtime_env={
-        "py_executable": sys.executable,
-    },
-)
-def verify_cql_remote(
-    logscale_url: str,
-    repository: str | None,
-    cql: str,
-) -> dict:
-    """Ray-remote CQL validation + execution on a SPREAD-scheduled worker."""
-    engine = LogScaleContainerEngine(base_url=logscale_url, repository=repository)
-    validation = engine.validate_query(cql)
-    exec_result = engine.execute(cql)
-    return {"validation": validation, "exec_result": exec_result}
 
 # ---------------------------------------------------------------------------
 # Judge prompts (separate for semantic and execution)
@@ -163,8 +168,6 @@ def _execute_container(engine: LogScaleContainerEngine, cql: str) -> dict:
 
 
 def _execute_local(engine, cql: str) -> dict:
-    import time
-    t0 = time.time()
     try:
         result_df = engine.execute(cql)
         return {
@@ -511,7 +514,7 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
             )
 
         # -- Score 1 & execution via Ray SPREAD when container engine is active
-        if self._container_engine is not None and ray.is_initialized():
+        if self._container_engine is not None and _HAS_RAY and ray.is_initialized():
             remote_result = ray.get(
                 verify_cql_remote.remote(
                     self.config.logscale_url,

@@ -114,11 +114,14 @@ To ingest it, you send batches of events to the LogScale structured
 ingest API using your ingest token:
 
 ```bash
-REPO="sandbox_zWlT5iVVpAnhkcUNRgSMb13J"   # your repo name from step 3
-TOKEN="your-ingest-token-from-step-3"
+export REPO="sandbox_zWlT5iVVpAnhkcUNRgSMb13J"   # your repo name from step 3
+export TOKEN="your-ingest-token-from-step-3"
 
 python3 -c "
-import csv, json, requests
+import csv, json, os, requests
+
+repo = os.environ['REPO']
+token = os.environ['TOKEN']
 
 with open('data/synthetic_falcon_events.csv') as f:
     rows = list(csv.DictReader(f))
@@ -140,17 +143,17 @@ for i in range(0, len(rows), 500):
         json=payload,
         headers={
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer $TOKEN',
+            'Authorization': f'Bearer {token}',
         },
     )
     print(f'  Ingested {min(i+500, len(rows))}/{len(rows)}  (HTTP {resp.status_code})')
 "
 ```
 
-Verify the data is there:
+Verify the data is there (uses `$REPO` from above):
 
 ```bash
-curl -s http://localhost:8080/api/v1/repositories/$REPO/queryjobs \
+curl -s "http://localhost:8080/api/v1/repositories/${REPO}/queryjobs" \
   -H 'content-type: application/json' \
   -d '{"queryString":"count()","start":"7days","isLive":false}' \
   | python3 -m json.tool
@@ -161,6 +164,11 @@ Or just run `setup.sh` which does steps 1-4 automatically:
 ```bash
 bash setup.sh
 ```
+
+> **Note:** When running via `ng_run`, the server calls `setup.sh`
+> automatically during startup. You do **not** need to run it manually
+> in that case — the container will be started and data ingested before
+> the server begins accepting requests.
 
 ### 5. Install the Gym
 
@@ -250,16 +258,52 @@ An invalid query gets `(0 + 0 + 0) / 3 = 0.0`.
 
 ### Configuration
 
-`configs/logscale_cql.yaml`:
+`configs/logscale_cql.yaml` defines the resources server **and** a simple
+agent with train/validation/example datasets:
 
 ```yaml
-logscale_cql:
+logscale_cql_resources_server:
   resources_servers:
     logscale_cql:
       entrypoint: app.py
       domain: knowledge
       engine: container
       logscale_url: http://localhost:8080
+      judge_model_server:
+        type: responses_api_models
+        name: policy_model
+      judge_responses_create_params:
+        input: []
+
+logscale_cql_simple_agent:
+  responses_api_agents:
+    simple_agent:
+      resources_server:
+        type: resources_servers
+        name: logscale_cql_resources_server
+      model_server:
+        type: responses_api_models
+        name: policy_model
+      datasets:
+      - name: train
+        type: train
+        jsonl_fpath: resources_servers/logscale_cql/data/train.jsonl
+        gitlab_identifier:
+          dataset_name: logscale_cql
+          version: 0.0.1
+          artifact_fpath: train.jsonl
+        license: NVIDIA Internal Use Only, Do Not Distribute
+      - name: validation
+        type: validation
+        jsonl_fpath: resources_servers/logscale_cql/data/validation.jsonl
+        gitlab_identifier:
+          dataset_name: logscale_cql
+          version: 0.0.1
+          artifact_fpath: validation.jsonl
+        license: NVIDIA Internal Use Only, Do Not Distribute
+      - name: example
+        type: example
+        jsonl_fpath: resources_servers/logscale_cql/data/example.jsonl
 ```
 
 | Option | Default | Description |
@@ -268,12 +312,46 @@ logscale_cql:
 | `logscale_url` | `http://localhost:8080` | Where LogScale is running |
 | `repository` | auto-detected | Set manually if you have multiple repos |
 
+### Datasets
+
+Datasets are stored in the GitLab Model Registry under `logscale_cql`
+version `0.0.1`. To download them for `ng_prepare_data`:
+
+```bash
+ng_prepare_data \
+    "+config_paths=[resources_servers/logscale_cql/configs/logscale_cql.yaml,responses_api_models/openai_model/configs/openai_model.yaml]" \
+    +output_dirpath=data/logscale_cql \
+    +mode=train_preparation \
+    +should_download=true \
+    +data_source=gitlab
+```
+
+This requires GitLab credentials in `env.yaml` at the Gym root:
+
+```yaml
+mlflow_tracking_uri: https://gitlab-master.nvidia.com/api/v4/projects/241584/ml/mlflow
+mlflow_tracking_token: <your-gitlab-api-token>
+```
+
+### Customer Evals
+
+This server is registered in `scripts/run_customer_evals.py`. To run evals:
+
+```bash
+python scripts/run_customer_evals.py \
+    ++model_short_name_for_upload=nemotron-nano-9b-v2 \
+    ++policy_api_key=<your-key>
+```
+
 ### Files
 
 | File | What it is |
 |---|---|
-| `setup.sh` | Automates steps 1-4 (container + ingest + verify) |
-| `app.py` | The Gym resources server (FastAPI) |
+| `setup.sh` | Automates container start + data ingest (runs automatically via `ng_run`) |
+| `app.py` | The Gym resources server (FastAPI) with Ray SPREAD scheduling |
 | `container_engine.py` | Talks to LogScale (query execution + validation) |
-| `configs/logscale_cql.yaml` | Server configuration |
+| `configs/logscale_cql.yaml` | Server + agent + dataset configuration |
 | `data/synthetic_falcon_events.csv` | 5000 synthetic CrowdStrike Falcon events |
+| `data/train.jsonl` | 20 training questions |
+| `data/validation.jsonl` | 10 validation questions |
+| `data/example.jsonl` | 5 example questions |
