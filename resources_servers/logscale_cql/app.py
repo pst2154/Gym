@@ -16,8 +16,11 @@ Quick start:
 """
 
 import json
+import logging
 import os
 import re
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, List, Optional
@@ -25,6 +28,8 @@ from typing import Any, List, Optional
 import requests as http_requests
 from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict
+
+logger = logging.getLogger(__name__)
 
 from nemo_gym.base_resources_server import (
     BaseResourcesServerConfig,
@@ -40,7 +45,27 @@ from nemo_gym.openai_utils import (
 )
 from nemo_gym.server_utils import get_response_json, raise_for_status
 
+import ray
+
 from container_engine import LogScaleContainerEngine
+
+
+@ray.remote(
+    scheduling_strategy="SPREAD",
+    runtime_env={
+        "py_executable": sys.executable,
+    },
+)
+def verify_cql_remote(
+    logscale_url: str,
+    repository: str | None,
+    cql: str,
+) -> dict:
+    """Ray-remote CQL validation + execution on a SPREAD-scheduled worker."""
+    engine = LogScaleContainerEngine(base_url=logscale_url, repository=repository)
+    validation = engine.validate_query(cql)
+    exec_result = engine.execute(cql)
+    return {"validation": validation, "exec_result": exec_result}
 
 # ---------------------------------------------------------------------------
 # Judge prompts (separate for semantic and execution)
@@ -256,6 +281,7 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
         super().__init__(*args, **kwargs)
 
         if self.config.engine == "container":
+            self._run_setup_sh()
             self._container_engine = LogScaleContainerEngine(
                 base_url=self.config.logscale_url,
                 repository=self.config.repository,
@@ -271,6 +297,27 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
         self._judge_api_key = api_key
         self._judge_api_url = (os.getenv("JUDGE_API_URL") or self.config.judge_api_url).rstrip("/")
         self._judge_model = os.getenv("JUDGE_MODEL") or self.config.judge_model
+
+    def _run_setup_sh(self):
+        """Run setup.sh to start LogScale container and ingest data if needed."""
+        setup_script = Path(__file__).resolve().parent / "setup.sh"
+        if not setup_script.exists():
+            logger.warning("setup.sh not found at %s, skipping container setup", setup_script)
+            return
+        env = os.environ.copy()
+        env["LOGSCALE_URL"] = self.config.logscale_url
+        logger.info("Running LogScale container setup: %s", setup_script)
+        result = subprocess.run(
+            ["bash", str(setup_script)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if result.returncode != 0:
+            logger.error("setup.sh failed (rc=%d):\n%s", result.returncode, result.stderr[-2000:])
+            raise RuntimeError(f"LogScale container setup failed: {result.stderr[-500:]}")
+        logger.info("LogScale container setup complete")
 
     @staticmethod
     def _load_key_from_dotenv(key_name: str) -> str:
@@ -463,12 +510,22 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
                 semantic_reasoning="No CQL extracted from model output.",
             )
 
-        # -- Score 1: Validity (binary 0/1) --------------------------------
-        validation = self._validate(cql)
-        validity_score = 1 if validation["is_valid"] else 0
+        # -- Score 1 & execution via Ray SPREAD when container engine is active
+        if self._container_engine is not None and ray.is_initialized():
+            remote_result = ray.get(
+                verify_cql_remote.remote(
+                    self.config.logscale_url,
+                    self.config.repository,
+                    cql,
+                )
+            )
+            validation = remote_result["validation"]
+            exec_result = remote_result["exec_result"]
+        else:
+            validation = self._validate(cql)
+            exec_result = self._execute(cql)
 
-        # -- Execute the query (needed for score 3) -------------------------
-        exec_result = self._execute(cql)
+        validity_score = 1 if validation["is_valid"] else 0
         exec_success = exec_result.get("success", False)
         results_str = exec_result["preview"] if exec_success else f"ERROR: {exec_result.get('error', 'unknown')}"
 

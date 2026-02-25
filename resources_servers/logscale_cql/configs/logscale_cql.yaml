@@ -1,24 +1,51 @@
 # LogScale (CQL) NL-to-query resources server
 #
-# Prerequisites:
-#   bash setup.sh   # starts container, ingests synthetic_falcon_events.csv
-#
 # Engine options:
 #   container  – execute CQL against a live LogScale instance (default)
 #   local      – execute CQL against a pandas DataFrame (requires logscale_evaluations/cql_engine.py)
-logscale_cql:
+logscale_cql_resources_server:
   resources_servers:
     logscale_cql:
       entrypoint: app.py
       domain: knowledge
-      engine: container                    # "container" or "local"
+      engine: container
       logscale_url: http://localhost:8080
-      # repository: sandbox_xxx            # auto-detected if omitted
-      # csv_path: data/synthetic_falcon_events.csv   # only needed for engine=local
-      # judge_model_server:
-      #   type: responses_api_models
-      #   name: policy_model
-      # judge_responses_create_params:
-      #   model: your-judge-model
-      #   max_output_tokens: 512
-      #   temperature: 0
+      judge_model_server:
+        type: responses_api_models
+        name: policy_model
+      judge_responses_create_params:
+        input: []
+      verified: false
+      description: LogScale CQL NL-to-query evaluation with live container backend
+      value: Improve CrowdStrike LogScale CQL query generation from natural language
+logscale_cql_simple_agent:
+  responses_api_agents:
+    simple_agent:
+      entrypoint: app.py
+      resources_server:
+        type: resources_servers
+        name: logscale_cql_resources_server
+      model_server:
+        type: responses_api_models
+        name: policy_model
+      datasets:
+      - name: train
+        type: train
+        jsonl_fpath: resources_servers/logscale_cql/data/train.jsonl
+        gitlab_identifier:
+          dataset_name: logscale_cql
+          version: 0.0.1
+          artifact_fpath: train.jsonl
+        license: NVIDIA Internal Use Only, Do Not Distribute
+      - name: validation
+        type: validation
+        jsonl_fpath: resources_servers/logscale_cql/data/validation.jsonl
+        gitlab_identifier:
+          dataset_name: logscale_cql
+          version: 0.0.1
+          artifact_fpath: validation.jsonl
+        license: NVIDIA Internal Use Only, Do Not Distribute
+      - name: example
+        type: example
+        jsonl_fpath: resources_servers/logscale_cql/data/example.jsonl
+        num_repeats: 1
