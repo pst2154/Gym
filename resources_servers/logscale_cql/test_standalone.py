@@ -142,14 +142,14 @@ def main():
 
     _load_env()
 
-    api_key = os.getenv("SONNET_46_KEY", "")
+    api_key = os.getenv("INFERENCE_API_KEY", "")
     base_url = os.getenv("NVIDIA_API_URL", "https://inference-api.nvidia.com").rstrip("/")
     model = os.getenv("LLM_MODEL", "aws/anthropic/bedrock-claude-opus-4-6")
 
     use_judge = not args.no_judge and bool(api_key)
     if not args.no_judge and not api_key:
-        print("[WARN] No API key found (SONNET_46_KEY). Running without LLM judge.")
-        print("       Set SONNET_46_KEY in ~/.env or run with --no-judge.\n")
+        print("[WARN] No API key found (INFERENCE_API_KEY). Running without LLM judge.")
+        print("       Set INFERENCE_API_KEY in ~/.env or run with --no-judge.\n")
 
     judge_fn = _make_judge_fn(api_key, base_url, model) if use_judge else None
 

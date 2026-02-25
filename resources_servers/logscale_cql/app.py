@@ -265,9 +265,9 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
             self._container_engine = None
             self._init_local_engine()
 
-        api_key = self.config.judge_api_key or os.getenv("SONNET_46_KEY", "")
+        api_key = self.config.judge_api_key or os.getenv("INFERENCE_API_KEY", "")
         if not api_key:
-            api_key = self._load_key_from_dotenv("SONNET_46_KEY")
+            api_key = self._load_key_from_dotenv("INFERENCE_API_KEY")
         self._judge_api_key = api_key
         self._judge_api_url = (os.getenv("JUDGE_API_URL") or self.config.judge_api_url).rstrip("/")
         self._judge_model = os.getenv("JUDGE_MODEL") or self.config.judge_model
@@ -397,7 +397,7 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
     def _generate_questions(self, count: int = 10, difficulty: int = 2) -> list[dict]:
         """Generate evaluation questions using the LLM."""
         if not self._judge_api_key:
-            raise ValueError("No LLM API key configured (set SONNET_46_KEY)")
+            raise ValueError("No LLM API key configured (set INFERENCE_API_KEY)")
         fields, event_types = self._discover_schema()
         difficulty = max(1, min(5, difficulty))
         guide = DIFFICULTY_GUIDES[difficulty]

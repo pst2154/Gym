@@ -57,7 +57,7 @@ API. You need an API key.
 Create or edit `~/.env` and add your key:
 
 ```
-SONNET_46_KEY=your-api-key-here
+INFERENCE_API_KEY=your-api-key-here
 ```
 
 The server reads this file on startup. The default model is
@@ -66,7 +66,7 @@ You can override these with environment variables:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `SONNET_46_KEY` | (required) | API key for the LLM judge |
+| `INFERENCE_API_KEY` | (required) | API key for the LLM judge |
 | `JUDGE_API_URL` | `https://inference-api.nvidia.com` | Base URL of the API |
 | `JUDGE_MODEL` | `aws/anthropic/bedrock-claude-opus-4-6` | Model to use |
 
