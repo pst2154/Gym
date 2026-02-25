@@ -22,22 +22,3 @@ logscale_cql:
       #   model: your-judge-model
       #   max_output_tokens: 512
       #   temperature: 0
-
-# Agent config: simple_agent + logscale_cql + policy model + train dataset
-logscale_cql_simple_agent:
-  responses_api_agents:
-    simple_agent:
-      entrypoint: app.py
-      resources_server:
-        type: resources_servers
-        name: logscale_cql
-      model_server:
-        type: responses_api_models
-        name: policy_model
-      datasets:
-        - name: train
-          type: train
-          jsonl_fpath: resources_servers/logscale_cql/data/example.jsonl
-        - name: synthetic_events
-          type: train
-          csv_fpath: resources_servers/logscale_cql/data/synthetic_falcon_events.csv

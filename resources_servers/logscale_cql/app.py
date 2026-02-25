@@ -278,13 +278,13 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
         question = (body.question or "").strip()
         if not question:
             return LogScaleCQLVerifyResponse(
-                **body.model_dump(), reward=0.0, question=question,
+                **body.model_dump(exclude={"question"}), reward=0.0, question=question,
             )
 
         cql = extract_cql_from_response(body.response)
         if not cql:
             return LogScaleCQLVerifyResponse(
-                **body.model_dump(), reward=0.0, question=question,
+                **body.model_dump(exclude={"question"}), reward=0.0, question=question,
                 extracted_cql=None, validity_score=0,
                 semantic_reasoning="No CQL extracted from model output.",
             )
@@ -332,7 +332,7 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
         reward = compute_reward(validity_score, semantic_score, execution_score)
 
         return LogScaleCQLVerifyResponse(
-            **body.model_dump(),
+            **body.model_dump(exclude={"question"}),
             reward=reward,
             question=question,
             extracted_cql=cql,

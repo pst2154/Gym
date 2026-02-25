@@ -65,6 +65,73 @@ cd ../../
 PYTHONPATH=. python resources_servers/logscale_cql/app.py
 ```
 
+### Full End-to-End Example (Gym `ng_run` + `curl`)
+
+This is the “real” Gym workflow: start the LogScale container, start NeMo Gym
+(`ng_run`), discover the resources-server URL from the head server, then send a
+query for scoring/execution.
+
+From the repo root:
+
+```bash
+# 1) Start LogScale + ingest the synthetic dataset
+cd Gym/resources_servers/logscale_cql
+bash setup.sh
+
+# 2) Start NeMo Gym (head server + logscale_cql resources server)
+cd ../../
+source .venv/bin/activate
+ng_run "+config_paths=[resources_servers/logscale_cql/configs/logscale_cql.yaml]"
+```
+
+In another terminal, discover the `logscale_cql` URL (its port is dynamically assigned):
+
+```bash
+curl -s http://127.0.0.1:11000/server_instances | python -m json.tool
+```
+
+You should see something like:
+
+```json
+[
+  {
+    "name": "logscale_cql",
+    "url": "http://127.0.0.1:12948",
+    "...": "..."
+  }
+]
+```
+
+Now send a query for scoring/execution (replace `12948` with whatever your head server reported):
+
+```bash
+curl -s http://127.0.0.1:12948/verify \
+  -H 'content-type: application/json' \
+  -d '{
+    "question":"How many events are in the dataset?",
+    "responses_create_params":{"input":""},
+    "response":{
+      "id":"resp_0",
+      "created_at":0,
+      "model":"gpt-4o-mini",
+      "object":"response",
+      "parallel_tool_calls":false,
+      "tool_choice":"none",
+      "tools":[],
+      "output":[
+        {"id":"msg_0","type":"message","role":"assistant","status":"completed",
+         "content":[{"type":"output_text","text":"count()","annotations":[]}]}
+      ]
+    }
+  }' | python -m json.tool
+```
+
+Notes:
+
+- `GET /` returns `404` (expected). Use `.../docs` for the interactive API docs.
+- Without a judge model configured, semantic stays `null` and execution uses a simple fallback:
+  `5` if the query ran, `1` if it errored.
+
 ### Example Output
 
 ```
