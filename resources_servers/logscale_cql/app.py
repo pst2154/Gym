@@ -196,6 +196,9 @@ class LogScaleCQLVerifyResponse(BaseVerifyResponse):
     execution_score: Optional[int] = None
     execution_reasoning: Optional[str] = None
     exec_success: bool = False
+    exec_n_rows: int = 0
+    exec_preview: Optional[str] = None
+    exec_error: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +346,9 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
             execution_score=execution_score,
             execution_reasoning=execution_reasoning,
             exec_success=exec_success,
+            exec_n_rows=int(exec_result.get("n_rows", 0) or 0),
+            exec_preview=exec_result.get("preview") if exec_success else None,
+            exec_error=exec_result.get("error") if not exec_success else None,
         )
 
 
