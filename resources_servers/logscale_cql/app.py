@@ -15,12 +15,16 @@ Quick start:
     python app.py          # start the resources server
 """
 
+import json
+import os
 import re
+import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional
 
+import requests as http_requests
 from fastapi import FastAPI
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict
 
 from nemo_gym.base_resources_server import (
     BaseResourcesServerConfig,
@@ -77,6 +81,31 @@ Score the EXECUTION correctness on a 1-5 scale:
 Respond EXACTLY in this format:
 EXECUTION_SCORE: <1-5>
 EXECUTION_REASONING: <one sentence>"""
+
+
+DIFFICULTY_GUIDES = {
+    1: "EASY: Simple single-step queries. One filter + one aggregation. Basic count, top, groupBy on a single field.",
+    2: "MEDIUM: Two-step pipelines. Filter + aggregate + sort, or filter + table with field selection.",
+    3: "HARD: Multi-step pipelines with 3+ stages. Combine filters, groupBy with aliases, sort, regex, cidr, multiple event types.",
+    4: "EXPERT: Complex queries requiring joins, temporal correlation, case statements, nested aggregations, or multiple rename/transform steps.",
+    5: "ADVERSARIAL: Edge cases, ambiguous phrasing, trick questions, queries that test CQL quirks (OR precedence, tag vs field, regex escaping).",
+}
+
+QUESTION_GEN_PROMPT = """\
+Generate {count} evaluation questions for a CQL (CrowdStrike Query Language / LogScale) query assistant.
+
+The data has these fields: {fields}
+Event types (values of #event_simpleName): {event_types}
+
+Difficulty level: {difficulty}/5
+{guide}
+
+Mix of:
+- semantic questions ("Write a query to...")
+- validity questions ("Is this query valid? `...`")
+
+Output a JSON array: [{{"question": "...", "category": "validity|semantic"}}]
+Output ONLY the JSON array."""
 
 
 # ---------------------------------------------------------------------------
@@ -175,11 +204,26 @@ class LogScaleCQLResourcesServerConfig(BaseResourcesServerConfig):
     judge_model_server: Optional[ModelServerRef] = None
     judge_responses_create_params: Optional[NeMoGymResponseCreateParamsNonStreaming] = None
 
+    judge_api_key: Optional[str] = None
+    judge_api_url: str = "https://inference-api.nvidia.com"
+    judge_model: str = "aws/anthropic/bedrock-claude-opus-4-6"
+
 
 class LogScaleCQLVerifyRequest(BaseVerifyRequest):
     model_config = ConfigDict(extra="allow")
     question: str = ""
     metadata: Optional[dict[str, Any]] = None
+
+
+class GenerateQuestionsRequest(BaseModel):
+    count: int = 10
+    difficulty: int = 2
+
+
+class GenerateQuestionsResponse(BaseModel):
+    questions: List[dict]
+    fields: List[str]
+    event_types: List[str]
 
 
 class LogScaleCQLVerifyResponse(BaseVerifyResponse):
@@ -220,6 +264,26 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
         else:
             self._container_engine = None
             self._init_local_engine()
+
+        api_key = self.config.judge_api_key or os.getenv("SONNET_46_KEY", "")
+        if not api_key:
+            api_key = self._load_key_from_dotenv("SONNET_46_KEY")
+        self._judge_api_key = api_key
+        self._judge_api_url = (os.getenv("JUDGE_API_URL") or self.config.judge_api_url).rstrip("/")
+        self._judge_model = os.getenv("JUDGE_MODEL") or self.config.judge_model
+
+    @staticmethod
+    def _load_key_from_dotenv(key_name: str) -> str:
+        env_file = Path.home() / ".env"
+        if not env_file.exists():
+            return ""
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                if k.strip() == key_name:
+                    return v.strip()
+        return ""
 
     def _init_local_engine(self):
         import pandas as pd
@@ -274,8 +338,115 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
                     text += getattr(c, "text", "") or ""
         return text
 
+    def _direct_llm_call(self, prompt_text: str, max_tokens: int = 512, temperature: float = 0) -> str:
+        """Call the LLM directly via OpenAI-compatible API (no Gym model server needed)."""
+        for attempt in range(3):
+            resp = http_requests.post(
+                f"{self._judge_api_url}/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self._judge_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self._judge_model,
+                    "messages": [
+                        {"role": "system", "content": "You are an expert LogScale CQL query evaluator."},
+                        {"role": "user", "content": prompt_text},
+                    ],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                },
+                timeout=120,
+            )
+            if resp.status_code in (429, 502, 503):
+                time.sleep(2 ** attempt)
+                continue
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+        resp.raise_for_status()
+        return ""
+
+    def _discover_schema(self) -> tuple[list[str], list[str]]:
+        """Query LogScale for field names and event types."""
+        if self._container_engine is None:
+            return [], []
+
+        fields_result = self._container_engine.execute("head(1)")
+        fields: list[str] = []
+        if fields_result.get("success"):
+            preview = fields_result.get("preview", "")
+            if preview and preview != "(no results)":
+                header_line = preview.strip().split("\n")[0]
+                fields = sorted(h.strip() for h in re.split(r"\s{2,}", header_line) if h.strip())
+
+        et_result = self._container_engine.execute(
+            'rename("#event_simpleName", as=eSN) | groupBy(eSN, function=count()) | sort(_count, order=desc) | head(50)'
+        )
+        event_types: list[str] = []
+        if et_result.get("success"):
+            preview = et_result.get("preview", "")
+            for line in preview.strip().split("\n")[1:]:
+                # Format: "  7505          ProcessRollup2" — count then name
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    event_types.append(parts[-1])
+                elif len(parts) == 1 and not parts[0].isdigit():
+                    event_types.append(parts[0])
+        return fields, event_types
+
+    def _generate_questions(self, count: int = 10, difficulty: int = 2) -> list[dict]:
+        """Generate evaluation questions using the LLM."""
+        if not self._judge_api_key:
+            raise ValueError("No LLM API key configured (set SONNET_46_KEY)")
+        fields, event_types = self._discover_schema()
+        difficulty = max(1, min(5, difficulty))
+        guide = DIFFICULTY_GUIDES[difficulty]
+        prompt = QUESTION_GEN_PROMPT.format(
+            count=count,
+            fields=", ".join(fields) if fields else "(discover via head(1))",
+            event_types=", ".join(event_types) if event_types else "(discover via top(#event_simpleName))",
+            difficulty=difficulty,
+            guide=guide,
+        )
+        raw = self._direct_llm_call(prompt, max_tokens=2048, temperature=0.7)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(l for l in raw.split("\n") if not l.strip().startswith("```")).strip()
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [
+                    {"question": str(x.get("question", "")).strip(),
+                     "category": str(x.get("category", "semantic")).strip()}
+                    for x in parsed if isinstance(x, dict) and x.get("question")
+                ]
+        except (json.JSONDecodeError, TypeError):
+            pass
+        m = re.search(r"\[.*\]", raw, re.DOTALL)
+        if m:
+            try:
+                parsed = json.loads(m.group(0))
+                return [
+                    {"question": str(x.get("question", "")).strip(),
+                     "category": str(x.get("category", "semantic")).strip()}
+                    for x in parsed if isinstance(x, dict) and x.get("question")
+                ]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return []
+
     def setup_webserver(self) -> FastAPI:
-        return super().setup_webserver()
+        app = super().setup_webserver()
+
+        @app.post("/generate_questions")
+        async def generate_questions_endpoint(body: GenerateQuestionsRequest) -> GenerateQuestionsResponse:
+            fields, event_types = self._discover_schema()
+            questions = self._generate_questions(count=body.count, difficulty=body.difficulty)
+            return GenerateQuestionsResponse(
+                questions=questions, fields=fields, event_types=event_types,
+            )
+
+        return app
 
     async def verify(self, body: LogScaleCQLVerifyRequest) -> LogScaleCQLVerifyResponse:
         question = (body.question or "").strip()
@@ -307,8 +478,10 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
         execution_score = None
         execution_reasoning = ""
 
-        has_judge = self.config.judge_model_server and self.config.judge_responses_create_params
-        if has_judge:
+        has_gym_judge = self.config.judge_model_server and self.config.judge_responses_create_params
+        has_direct_judge = bool(self._judge_api_key)
+
+        if has_gym_judge:
             try:
                 sem_raw = await self._judge_call(
                     SEMANTIC_JUDGE_PROMPT.format(question=question, query=cql)
@@ -328,6 +501,28 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
                 execution_reasoning = parsed_exe["execution_reasoning"]
             except Exception as e:
                 execution_reasoning = f"Execution judge error: {e}"
+
+        elif has_direct_judge:
+            try:
+                sem_raw = self._direct_llm_call(
+                    SEMANTIC_JUDGE_PROMPT.format(question=question, query=cql)
+                )
+                parsed_sem = _parse_semantic_judge(sem_raw)
+                semantic_score = parsed_sem["semantic_score"]
+                semantic_reasoning = parsed_sem["semantic_reasoning"]
+            except Exception as e:
+                semantic_reasoning = f"Semantic judge error: {e}"
+
+            try:
+                exe_raw = self._direct_llm_call(
+                    EXECUTION_JUDGE_PROMPT.format(question=question, query=cql, results=results_str)
+                )
+                parsed_exe = _parse_execution_judge(exe_raw)
+                execution_score = parsed_exe["execution_score"]
+                execution_reasoning = parsed_exe["execution_reasoning"]
+            except Exception as e:
+                execution_reasoning = f"Execution judge error: {e}"
+
         else:
             execution_score = 5 if exec_success else 1
             execution_reasoning = "Execution success" if exec_success else "Execution failed"
