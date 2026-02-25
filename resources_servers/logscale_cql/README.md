@@ -132,6 +132,19 @@ Notes:
 - Without a judge model configured, semantic stays `null` and execution uses a simple fallback:
   `5` if the query ran, `1` if it errored.
 
+### Use with `logscale_evaluations` hill climb
+
+If you also have the `logscale_evaluations` repo, you can run its hill-climb loop
+against this Gym resources server (the loop will call `POST /verify`).
+
+From the `logscale_evaluations` repo (while `ng_run` is running):
+
+```bash
+python hill_climb.py --iterations 1 --questions 2 --holdout 0 --engine gym \
+  --gym-head-url http://127.0.0.1:11000 --gym-server-name logscale_cql \
+  --output hill_climb_gym_results.json
+```
+
 ### Example Output
 
 ```
