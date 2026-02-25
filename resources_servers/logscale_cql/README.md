@@ -30,8 +30,16 @@ The container takes 30-60 seconds to start. Check if it's ready:
 curl http://localhost:8080/api/v1/status
 ```
 
-When you see `"status":"ok"`, LogScale is running. You can also open
-http://localhost:8080 in a browser.
+When you see `"status":"ok"`, LogScale is running.
+
+**First-time setup (required):** Open http://localhost:8080 in your browser.
+LogScale will show an initial setup screen where you need to enter a
+license key. Paste the key into the UI and click through the setup wizard.
+This only needs to be done once — the key persists across container restarts.
+If you need the key, contact asteiner@nvidia.com.
+
+Once you've completed the UI setup, the APIs (GraphQL, query jobs, ingest)
+become available. The rest of this guide uses those APIs.
 
 To stop or restart later:
 
