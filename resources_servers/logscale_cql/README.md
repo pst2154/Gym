@@ -183,19 +183,30 @@ This installs `nemo_gym` and the `ng_run` CLI.
 
 ### 6. Start the Gym Server
 
+You need the logscale_cql config **and** a model config. Use `vllm_model`
+(not `openai_model`) because the NVIDIA inference API only supports
+`/chat/completions`, not the OpenAI `/responses` endpoint. The vllm_model
+server translates Responses API calls into chat completions automatically.
+
 ```bash
 cd Gym
 source .venv/bin/activate
-ng_run "+config_paths=[resources_servers/logscale_cql/configs/logscale_cql.yaml]"
+
+export POLICY_BASE_URL=https://inference-api.nvidia.com/v1
+export POLICY_API_KEY=<your-inference-api-key>
+export POLICY_MODEL_NAME=nvidia/nvidia/nemotron-3-super-preview
+
+ng_run "+config_paths=[resources_servers/logscale_cql/configs/logscale_cql.yaml,responses_api_models/vllm_model/configs/vllm_model.yaml]" \
+  +policy_base_url=$POLICY_BASE_URL +policy_api_key=$POLICY_API_KEY +policy_model_name=$POLICY_MODEL_NAME
 ```
 
-Wait ~30 seconds until you see `All 1 / 1 servers ready`.
-
-The Gym runs two things:
+Wait ~45 seconds until you see all 3 servers ready:
 - **Head server** on port 11000 — manages server instances
-- **logscale_cql resources server** on a random port — does the actual work
+- **logscale_cql resources server** — does scoring/verification
+- **logscale_cql_simple_agent** — routes questions to the policy model
+- **policy_model** (vllm_model) — calls the LLM
 
-Find the resources server URL:
+Find the server URLs:
 
 ```bash
 curl -s http://127.0.0.1:11000/server_instances | python3 -m json.tool
@@ -312,6 +323,36 @@ logscale_cql_simple_agent:
 | `logscale_url` | `http://localhost:8080` | Where LogScale is running |
 | `repository` | auto-detected | Set manually if you have multiple repos |
 
+### Benchmark a Model
+
+To benchmark a model on all questions (train + validation combined):
+
+```bash
+# Combine datasets into one file
+cat resources_servers/logscale_cql/data/train.jsonl \
+    resources_servers/logscale_cql/data/validation.jsonl \
+    > resources_servers/logscale_cql/data/all_questions.jsonl
+
+# Collect rollouts (Gym must be running from step 6)
+# max_output_tokens is important for reasoning models that use thinking tokens.
+ng_collect_rollouts \
+    +agent_name=logscale_cql_simple_agent \
+    +input_jsonl_fpath=resources_servers/logscale_cql/data/all_questions.jsonl \
+    +output_jsonl_fpath=resources_servers/logscale_cql/data/benchmark_rollouts.jsonl \
+    +num_samples_in_parallel=10 \
+    "+responses_create_params={max_output_tokens: 32768}"
+```
+
+View results:
+
+```bash
+ng_viewer +jsonl_fpath=resources_servers/logscale_cql/data/benchmark_rollouts.jsonl
+```
+
+To benchmark a different model, change `POLICY_MODEL_NAME` (and
+optionally `POLICY_BASE_URL`), restart `ng_run`, and re-run the
+`ng_collect_rollouts` command above.
+
 ### Datasets
 
 Datasets are stored in the GitLab Model Registry under `logscale_cql`
@@ -319,7 +360,7 @@ version `0.0.1`. To download them for `ng_prepare_data`:
 
 ```bash
 ng_prepare_data \
-    "+config_paths=[resources_servers/logscale_cql/configs/logscale_cql.yaml,responses_api_models/openai_model/configs/openai_model.yaml]" \
+    "+config_paths=[resources_servers/logscale_cql/configs/logscale_cql.yaml,responses_api_models/vllm_model/configs/vllm_model.yaml]" \
     +output_dirpath=data/logscale_cql \
     +mode=train_preparation \
     +should_download=true \
@@ -329,7 +370,7 @@ ng_prepare_data \
 This requires GitLab credentials in `env.yaml` at the Gym root:
 
 ```yaml
-mlflow_tracking_uri: https://gitlab-master.nvidia.com/api/v4/projects/191584/ml/mlflow
+mlflow_tracking_uri: https://gitlab-master.nvidia.com/api/v4/projects/241584/ml/mlflow
 mlflow_tracking_token: <your-gitlab-api-token>
 ```
 
@@ -357,7 +398,7 @@ With LLM judge enabled (INFERENCE_API_KEY set, `bedrock-claude-opus-4-6`):
 |---|---|---|---|---|
 | Baseline pending | — | — | — | — |
 
-To generate your own baselines, run the customer evals:
+To generate your own baselines, run the benchmark or customer evals:
 
 ```bash
 python scripts/run_customer_evals.py \
@@ -378,5 +419,7 @@ Results are written to `resources_servers/logscale_cql/data/<model>_validation_r
 | `prompt_templates/` | Judge and question-generation prompts (text files) |
 | `data/synthetic_falcon_events.csv` | 5000 synthetic CrowdStrike Falcon events |
 | `data/example.jsonl` | 5 example questions |
-| `data/train.jsonl` | 20 training questions (download via `ng_prepare_data`) |
-| `data/validation.jsonl` | 10 validation questions (download via `ng_prepare_data`) |
+| `data/train.jsonl` | Training questions (download via `ng_prepare_data`) |
+| `data/validation.jsonl` | Validation questions (download via `ng_prepare_data`) |
+| `data/all_questions.jsonl` | Combined train+validation for benchmarking |
+| `data/benchmark_rollouts.jsonl` | Output from `ng_collect_rollouts` |
