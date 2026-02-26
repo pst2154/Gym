@@ -329,7 +329,7 @@ ng_prepare_data \
 This requires GitLab credentials in `env.yaml` at the Gym root:
 
 ```yaml
-mlflow_tracking_uri: https://gitlab-master.nvidia.com/api/v4/projects/241584/ml/mlflow
+mlflow_tracking_uri: https://gitlab-master.nvidia.com/api/v4/projects/191584/ml/mlflow
 mlflow_tracking_token: <your-gitlab-api-token>
 ```
 

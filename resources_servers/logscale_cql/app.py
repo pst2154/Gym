@@ -15,6 +15,7 @@ Quick start:
     python app.py          # start the resources server
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -45,33 +46,29 @@ from nemo_gym.openai_utils import (
 )
 from nemo_gym.server_utils import get_response_json, raise_for_status
 
-try:
-    import ray
-
-    @ray.remote(
-        num_cpus=1,
-        scheduling_strategy="SPREAD",
-        runtime_env={
-            "py_executable": sys.executable,
-        },
-    )
-    def verify_cql_remote(
-        logscale_url: str,
-        repository: str | None,
-        cql: str,
-    ) -> dict:
-        """Ray-remote CQL validation + execution on a SPREAD-scheduled worker."""
-        from container_engine import LogScaleContainerEngine as _Engine
-        engine = _Engine(base_url=logscale_url, repository=repository)
-        validation = engine.validate_query(cql)
-        exec_result = engine.execute(cql)
-        return {"validation": validation, "exec_result": exec_result}
-
-    _HAS_RAY = True
-except ImportError:
-    _HAS_RAY = False
+import ray
 
 from container_engine import LogScaleContainerEngine
+
+
+@ray.remote(
+    num_cpus=1,
+    scheduling_strategy="SPREAD",
+    runtime_env={
+        "py_executable": sys.executable,
+    },
+)
+def verify_cql_remote(
+    logscale_url: str,
+    repository: str | None,
+    cql: str,
+) -> dict:
+    """Ray-remote CQL validation + execution on a SPREAD-scheduled worker."""
+    from container_engine import LogScaleContainerEngine as _Engine
+    engine = _Engine(base_url=logscale_url, repository=repository)
+    validation = engine.validate_query(cql)
+    exec_result = engine.execute(cql)
+    return {"validation": validation, "exec_result": exec_result}
 
 # ---------------------------------------------------------------------------
 # Judge prompts — loaded from prompt_templates/ for easy tracking and reuse
@@ -473,14 +470,13 @@ class LogScaleCQLResourcesServer(SimpleResourcesServer):
             )
 
         # -- Score 1 & execution via Ray SPREAD when container engine is active
-        if self._container_engine is not None and _HAS_RAY and ray.is_initialized():
-            remote_result = ray.get(
-                verify_cql_remote.remote(
-                    self.config.logscale_url,
-                    self.config.repository,
-                    cql,
-                )
+        if self._container_engine is not None and ray.is_initialized():
+            ref = verify_cql_remote.remote(
+                self.config.logscale_url,
+                self.config.repository,
+                cql,
             )
+            remote_result = await asyncio.to_thread(ray.get, ref)
             validation = remote_result["validation"]
             exec_result = remote_result["exec_result"]
         else:
