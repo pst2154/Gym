@@ -1,0 +1,15 @@
+You are evaluating whether a CQL query captures the user's intent.
+
+Question: {question}
+Generated CQL: {query}
+
+Score the SEMANTIC correctness on a 1-5 scale:
+- 5 = Query perfectly captures the user's intent (correct fields, filters, aggregations, ordering)
+- 4 = Minor deviation that would still give useful results
+- 3 = Partially correct — misses an important aspect of the question
+- 2 = Mostly wrong — fundamentally misunderstands the question
+- 1 = Completely wrong or unrelated
+
+Respond EXACTLY in this format:
+SEMANTIC_SCORE: <1-5>
+SEMANTIC_REASONING: <one sentence>

@@ -49,6 +49,7 @@ try:
     import ray
 
     @ray.remote(
+        num_cpus=1,
         scheduling_strategy="SPREAD",
         runtime_env={
             "py_executable": sys.executable,
@@ -73,45 +74,19 @@ except ImportError:
 from container_engine import LogScaleContainerEngine
 
 # ---------------------------------------------------------------------------
-# Judge prompts (separate for semantic and execution)
+# Judge prompts — loaded from prompt_templates/ for easy tracking and reuse
 # ---------------------------------------------------------------------------
 
-SEMANTIC_JUDGE_PROMPT = """\
-You are evaluating whether a CQL query captures the user's intent.
+_PROMPT_DIR = Path(__file__).resolve().parent / "prompt_templates"
 
-Question: {question}
-Generated CQL: {query}
 
-Score the SEMANTIC correctness on a 1-5 scale:
-- 5 = Query perfectly captures the user's intent (correct fields, filters, aggregations, ordering)
-- 4 = Minor deviation that would still give useful results
-- 3 = Partially correct — misses an important aspect of the question
-- 2 = Mostly wrong — fundamentally misunderstands the question
-- 1 = Completely wrong or unrelated
+def _load_prompt(name: str) -> str:
+    return (_PROMPT_DIR / name).read_text().strip()
 
-Respond EXACTLY in this format:
-SEMANTIC_SCORE: <1-5>
-SEMANTIC_REASONING: <one sentence>"""
 
-EXECUTION_JUDGE_PROMPT = """\
-You are evaluating whether a CQL query produced correct results.
-
-Question: {question}
-Generated CQL: {query}
-Query Results:
-{results}
-
-Score the EXECUTION correctness on a 1-5 scale:
-- 5 = Results are exactly what you'd expect for this question
-- 4 = Results are mostly correct with minor issues (e.g. slightly off sort order)
-- 3 = Results are partially correct but have notable issues
-- 2 = Results are mostly wrong or empty when they shouldn't be
-- 1 = Complete failure — error, empty when data should exist, or nonsensical output
-
-Respond EXACTLY in this format:
-EXECUTION_SCORE: <1-5>
-EXECUTION_REASONING: <one sentence>"""
-
+SEMANTIC_JUDGE_PROMPT = _load_prompt("semantic_judge.txt")
+EXECUTION_JUDGE_PROMPT = _load_prompt("execution_judge.txt")
+QUESTION_GEN_PROMPT = _load_prompt("question_generation.txt")
 
 DIFFICULTY_GUIDES = {
     1: "EASY: Simple single-step queries. One filter + one aggregation. Basic count, top, groupBy on a single field.",
@@ -120,22 +95,6 @@ DIFFICULTY_GUIDES = {
     4: "EXPERT: Complex queries requiring joins, temporal correlation, case statements, nested aggregations, or multiple rename/transform steps.",
     5: "ADVERSARIAL: Edge cases, ambiguous phrasing, trick questions, queries that test CQL quirks (OR precedence, tag vs field, regex escaping).",
 }
-
-QUESTION_GEN_PROMPT = """\
-Generate {count} evaluation questions for a CQL (CrowdStrike Query Language / LogScale) query assistant.
-
-The data has these fields: {fields}
-Event types (values of #event_simpleName): {event_types}
-
-Difficulty level: {difficulty}/5
-{guide}
-
-Mix of:
-- semantic questions ("Write a query to...")
-- validity questions ("Is this query valid? `...`")
-
-Output a JSON array: [{{"question": "...", "category": "validity|semantic"}}]
-Output ONLY the JSON array."""
 
 
 # ---------------------------------------------------------------------------

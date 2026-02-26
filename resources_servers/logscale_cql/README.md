@@ -343,6 +343,30 @@ python scripts/run_customer_evals.py \
     ++policy_api_key=<your-key>
 ```
 
+### Baselines
+
+Baseline results on the validation set (10 questions, no-judge mode — validity + execution only):
+
+| Model | Mean Reward | Validity Rate | Notes |
+|---|---|---|---|
+| test_standalone.py (hardcoded CQL) | 0.667 | 80% (4/5) | Manually written queries, 1 intentionally invalid |
+
+With LLM judge enabled (INFERENCE_API_KEY set, `bedrock-claude-opus-4-6`):
+
+| Model | Mean Reward | Validity | Semantic (avg) | Execution (avg) |
+|---|---|---|---|---|
+| Baseline pending | — | — | — | — |
+
+To generate your own baselines, run the customer evals:
+
+```bash
+python scripts/run_customer_evals.py \
+    ++model_short_name_for_upload=<your-model> \
+    ++policy_api_key=<key>
+```
+
+Results are written to `resources_servers/logscale_cql/data/<model>_validation_rollouts.jsonl`.
+
 ### Files
 
 | File | What it is |
@@ -351,7 +375,8 @@ python scripts/run_customer_evals.py \
 | `app.py` | The Gym resources server (FastAPI) with Ray SPREAD scheduling |
 | `container_engine.py` | Talks to LogScale (query execution + validation) |
 | `configs/logscale_cql.yaml` | Server + agent + dataset configuration |
+| `prompt_templates/` | Judge and question-generation prompts (text files) |
 | `data/synthetic_falcon_events.csv` | 5000 synthetic CrowdStrike Falcon events |
-| `data/train.jsonl` | 20 training questions |
-| `data/validation.jsonl` | 10 validation questions |
 | `data/example.jsonl` | 5 example questions |
+| `data/train.jsonl` | 20 training questions (download via `ng_prepare_data`) |
+| `data/validation.jsonl` | 10 validation questions (download via `ng_prepare_data`) |

@@ -1,0 +1,17 @@
+You are evaluating whether a CQL query produced correct results.
+
+Question: {question}
+Generated CQL: {query}
+Query Results:
+{results}
+
+Score the EXECUTION correctness on a 1-5 scale:
+- 5 = Results are exactly what you'd expect for this question
+- 4 = Results are mostly correct with minor issues (e.g. slightly off sort order)
+- 3 = Results are partially correct but have notable issues
+- 2 = Results are mostly wrong or empty when they shouldn't be
+- 1 = Complete failure — error, empty when data should exist, or nonsensical output
+
+Respond EXACTLY in this format:
+EXECUTION_SCORE: <1-5>
+EXECUTION_REASONING: <one sentence>
