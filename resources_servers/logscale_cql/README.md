@@ -334,13 +334,13 @@ cat resources_servers/logscale_cql/data/train.jsonl \
     > resources_servers/logscale_cql/data/all_questions.jsonl
 
 # Collect rollouts (Gym must be running from step 6)
-# max_output_tokens is important for reasoning models that use thinking tokens.
+# The NL2CQL system prompt, fields/event types, and max_output_tokens
+# are baked into the JSONL by split_for_gym.py — no CLI overrides needed.
 ng_collect_rollouts \
     +agent_name=logscale_cql_simple_agent \
     +input_jsonl_fpath=resources_servers/logscale_cql/data/all_questions.jsonl \
     +output_jsonl_fpath=resources_servers/logscale_cql/data/benchmark_rollouts.jsonl \
-    +num_samples_in_parallel=10 \
-    "+responses_create_params={max_output_tokens: 32768}"
+    +num_samples_in_parallel=10
 ```
 
 View results:
