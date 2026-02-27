@@ -280,11 +280,8 @@ logscale_cql_resources_server:
       domain: knowledge
       engine: container
       logscale_url: http://localhost:8080
-      judge_model_server:
-        type: responses_api_models
-        name: policy_model
-      judge_responses_create_params:
-        input: []
+      judge_model_server: null
+      judge_responses_create_params: null
 
 logscale_cql_simple_agent:
   responses_api_agents:
@@ -336,6 +333,8 @@ cat resources_servers/logscale_cql/data/train.jsonl \
 # Collect rollouts (Gym must be running from step 6)
 # The NL2CQL system prompt, fields/event types, and max_output_tokens
 # are baked into the JSONL by split_for_gym.py — no CLI overrides needed.
+# Judge scoring uses INFERENCE_API_KEY + JUDGE_MODEL env vars (direct API).
+rm -f resources_servers/logscale_cql/data/benchmark_rollouts.jsonl
 ng_collect_rollouts \
     +agent_name=logscale_cql_simple_agent \
     +input_jsonl_fpath=resources_servers/logscale_cql/data/all_questions.jsonl \

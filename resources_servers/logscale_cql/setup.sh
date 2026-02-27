@@ -119,32 +119,39 @@ with open('$CSV_PATH') as f:
     rows = list(csv.DictReader(f))
 
 print(f'  {len(rows)} events to ingest')
-chunk_size = 500
+from collections import defaultdict
+by_type = defaultdict(list)
+for row in rows:
+    by_type[row.get('#event_simpleName', 'unknown')].append(row)
+print(f'  {len(by_type)} event types')
+
 total = 0
-for i in range(0, len(rows), chunk_size):
-    chunk = rows[i:i+chunk_size]
-    payload = [{
-        'tags': {'host': 'sandbox'},
-        'events': [
-            {
-                'timestamp': row.get('timestamp', ''),
-                'attributes': {k: v for k, v in row.items() if v and k != 'timestamp'},
-            }
-            for row in chunk
-        ],
-    }]
-    resp = requests.post(
-        '$LOGSCALE_URL/api/v1/ingest/humio-structured',
-        json=payload,
-        headers={
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $INGEST_TOKEN',
-        },
-    )
-    total += len(chunk)
-    if resp.status_code != 200:
-        print(f'  ERROR at {total}: {resp.status_code} {resp.text[:120]}')
-        exit(1)
+chunk_size = 500
+for etype, typed_rows in by_type.items():
+    for i in range(0, len(typed_rows), chunk_size):
+        chunk = typed_rows[i:i+chunk_size]
+        payload = [{
+            'tags': {'host': 'sandbox', '#event_simpleName': etype},
+            'events': [
+                {
+                    'timestamp': row.get('timestamp', ''),
+                    'attributes': {k: v for k, v in row.items() if v and k not in ('timestamp', '#event_simpleName')},
+                }
+                for row in chunk
+            ],
+        }]
+        resp = requests.post(
+            '$LOGSCALE_URL/api/v1/ingest/humio-structured',
+            json=payload,
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $INGEST_TOKEN',
+            },
+        )
+        total += len(chunk)
+        if resp.status_code != 200:
+            print(f'  ERROR at {total}: {resp.status_code} {resp.text[:120]}')
+            exit(1)
 
 print(f'  [OK] {total} events ingested')
 "
