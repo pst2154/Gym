@@ -212,10 +212,9 @@ Find the server URLs:
 curl -s http://127.0.0.1:11000/server_instances | python3 -m json.tool
 ```
 
-### 7. Generate Evaluation Questions
+### 7. Generate Evaluation Questions (optional)
 
-The Gym can generate evaluation questions by querying LogScale for the
-available fields and event types, then asking the LLM to create questions:
+The server can generate evaluation questions by querying LogScale for fields and event types, then asking the LLM. Use the logscale_cql resources server port from `server_instances` (step 6):
 
 ```bash
 curl -s http://127.0.0.1:<PORT>/generate_questions \
@@ -223,12 +222,11 @@ curl -s http://127.0.0.1:<PORT>/generate_questions \
   -d '{"count": 10, "difficulty": 2}'
 ```
 
-`difficulty` ranges from 1 (easy) to 5 (adversarial). The response includes
-the generated questions plus the discovered fields and event types.
+`difficulty` 1 (easy) to 5 (adversarial). For benchmarking, use the train/validation JSONL instead (see Benchmark section).
 
 ### 8. Score a Query
 
-Send a question and a model's CQL response to `/verify`:
+Send a question and a model's CQL response to `/verify` (use the logscale_cql resources server port from step 6):
 
 ```bash
 curl -s http://127.0.0.1:<PORT>/verify \
@@ -382,23 +380,7 @@ mlflow_tracking_uri: https://gitlab-master.nvidia.com/api/v4/projects/241584/ml/
 mlflow_tracking_token: <your-gitlab-api-token>
 ```
 
-### Customer Evals
-
-This server is registered in `scripts/run_customer_evals.py`. To run evals:
-
-```bash
-python scripts/run_customer_evals.py \
-    ++model_short_name_for_upload=nemotron-nano-9b-v2 \
-    ++policy_api_key=<your-key>
-```
-
 ### Baselines
-
-Baseline results on the validation set (10 questions, no-judge mode — validity + execution only):
-
-| Model | Mean Reward | Validity Rate | Notes |
-|---|---|---|---|
-| test_standalone.py (hardcoded CQL) | 0.667 | 80% (4/5) | Manually written queries, 1 intentionally invalid |
 
 With LLM judge enabled (INFERENCE_API_KEY set, judge model `bedrock-claude-opus-4-6`), full benchmark on 223 questions (train + validation):
 
@@ -410,23 +392,7 @@ With LLM judge enabled (INFERENCE_API_KEY set, judge model `bedrock-claude-opus-
 | Opus 4.6 | 0.497 | 0.314 | 3.90 | 1.98 | 0.314 |
 | Gemini 3 Flash Preview | 0.454 | 0.242 | 3.78 | 1.81 | 0.242 |
 
-Raw aggregate metrics (from `ng_collect_rollouts` output):
-
-- **Nemotron Super:** reward 0.472, validity_score 0.287, semantic_score 3.74, execution_score 1.91, exec_success 0.287
-- **Nemotron Nano 30B A3B:** reward 0.441, validity_score 0.242, semantic_score 3.69, execution_score 1.72, exec_success 0.242
-- **GPT OSS 120B:** reward 0.454, validity_score 0.242, semantic_score 3.78, execution_score 1.81, exec_success 0.242
-- **Opus 4.6:** reward 0.497, validity_score 0.314, semantic_score 3.90, execution_score 1.98, exec_success 0.314
-- **Gemini 3 Flash Preview:** reward 0.454, validity_score 0.242, semantic_score 3.78, execution_score 1.81, exec_success 0.242
-
-To generate your own baselines, run the benchmark or customer evals:
-
-```bash
-python scripts/run_customer_evals.py \
-    ++model_short_name_for_upload=<your-model> \
-    ++policy_api_key=<key>
-```
-
-Results are written to `resources_servers/logscale_cql/data/<model>_validation_rollouts.jsonl`.
+To generate your own baselines: run `resources_servers/logscale_cql/run_full_benchmark.sh` (output: `data/benchmark_rollouts_<model>.jsonl`) or from Gym root `python scripts/run_customer_evals.py ++model_short_name_for_upload=<name> ++policy_api_key=<key>` (output: `data/<name>_validation_rollouts.jsonl`).
 
 ### Files
 
@@ -442,4 +408,4 @@ Results are written to `resources_servers/logscale_cql/data/<model>_validation_r
 | `data/train.jsonl` | Training questions (download via `ng_prepare_data`) |
 | `data/validation.jsonl` | Validation questions (download via `ng_prepare_data`) |
 | `data/all_questions.jsonl` | Combined train+validation for benchmarking |
-| `data/benchmark_rollouts.jsonl` | Output from `ng_collect_rollouts` |
+| `data/benchmark_rollouts.jsonl` | Output from `ng_collect_rollouts` (or `benchmark_rollouts_<model>.jsonl` with `run_full_benchmark.sh`) |
