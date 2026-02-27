@@ -390,7 +390,7 @@ With LLM judge enabled (INFERENCE_API_KEY set, judge model `bedrock-claude-opus-
 | Nemotron Nano 30B A3B | 0.441 | 0.242 | 3.69 | 1.72 | 0.242 |
 | GPT OSS 120B | 0.454 | 0.242 | 3.78 | 1.81 | 0.242 |
 | Opus 4.6 | 0.497 | 0.314 | 3.90 | 1.98 | 0.314 |
-| Gemini 3 Flash Preview | 0.454 | 0.242 | 3.78 | 1.81 | 0.242 |
+| Gemini 3 Flash Preview | 0.473 | 0.300 | 3.72 | 1.87 | 0.300 |
 
 To generate your own baselines: run `resources_servers/logscale_cql/run_full_benchmark.sh` (output: `data/benchmark_rollouts_<model>.jsonl`) or from Gym root `python scripts/run_customer_evals.py ++model_short_name_for_upload=<name> ++policy_api_key=<key>` (output: `data/<name>_validation_rollouts.jsonl`).
 
