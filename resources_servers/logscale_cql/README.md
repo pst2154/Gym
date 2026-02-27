@@ -324,6 +324,15 @@ logscale_cql_simple_agent:
 
 To benchmark a model on all questions (train + validation combined):
 
+**From Gym repo only (no parent project):** Ensure `train.jsonl` and `validation.jsonl` exist under `data/` (e.g. from GitLab or a colleague). Then from Gym repo root:
+
+```bash
+export LLM_MODEL=your/model  # used for output filename benchmark_rollouts_<model>.jsonl
+bash resources_servers/logscale_cql/run_full_benchmark.sh
+```
+
+**From Gym repo root (manual):**
+
 ```bash
 # Combine datasets into one file
 cat resources_servers/logscale_cql/data/train.jsonl \
@@ -391,11 +400,23 @@ Baseline results on the validation set (10 questions, no-judge mode — validity
 |---|---|---|---|
 | test_standalone.py (hardcoded CQL) | 0.667 | 80% (4/5) | Manually written queries, 1 intentionally invalid |
 
-With LLM judge enabled (INFERENCE_API_KEY set, `bedrock-claude-opus-4-6`):
+With LLM judge enabled (INFERENCE_API_KEY set, judge model `bedrock-claude-opus-4-6`), full benchmark on 223 questions (train + validation):
 
-| Model | Mean Reward | Validity | Semantic (avg) | Execution (avg) |
-|---|---|---|---|---|
-| Baseline pending | — | — | — | — |
+| Model | Reward | Validity | Semantic (avg) | Execution (avg) | Exec success |
+|---|---|---|---|---|---|
+| Nemotron Super | 0.472 | 0.287 | 3.74 | 1.91 | 0.287 |
+| Nemotron Nano 30B A3B | 0.441 | 0.242 | 3.69 | 1.72 | 0.242 |
+| GPT OSS 120B | 0.454 | 0.242 | 3.78 | 1.81 | 0.242 |
+| Opus 4.6 | 0.497 | 0.314 | 3.90 | 1.98 | 0.314 |
+| Gemini 3 Flash Preview | 0.454 | 0.242 | 3.78 | 1.81 | 0.242 |
+
+Raw aggregate metrics (from `ng_collect_rollouts` output):
+
+- **Nemotron Super:** reward 0.472, validity_score 0.287, semantic_score 3.74, execution_score 1.91, exec_success 0.287
+- **Nemotron Nano 30B A3B:** reward 0.441, validity_score 0.242, semantic_score 3.69, execution_score 1.72, exec_success 0.242
+- **GPT OSS 120B:** reward 0.454, validity_score 0.242, semantic_score 3.78, execution_score 1.81, exec_success 0.242
+- **Opus 4.6:** reward 0.497, validity_score 0.314, semantic_score 3.90, execution_score 1.98, exec_success 0.314
+- **Gemini 3 Flash Preview:** reward 0.454, validity_score 0.242, semantic_score 3.78, execution_score 1.81, exec_success 0.242
 
 To generate your own baselines, run the benchmark or customer evals:
 
