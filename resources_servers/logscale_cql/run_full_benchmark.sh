@@ -17,7 +17,6 @@ cd "$GYM_ROOT"
 source .venv/bin/activate
 MODEL_NAME=$(echo "${LLM_MODEL:-unknown}" | sed 's|.*/||')
 DATA_DIR="resources_servers/logscale_cql/data"
-cat "$DATA_DIR/train.jsonl" "$DATA_DIR/validation.jsonl" > "$DATA_DIR/all_questions.jsonl"
 rm -f "$DATA_DIR/benchmark_rollouts_${MODEL_NAME}.jsonl"
 ng_collect_rollouts +agent_name=logscale_cql_simple_agent \
   +input_jsonl_fpath="$DATA_DIR/all_questions.jsonl" \

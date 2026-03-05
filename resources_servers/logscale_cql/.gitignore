@@ -4,5 +4,4 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-data/train.jsonl
-data/validation.jsonl
+data/all_questions.jsonl

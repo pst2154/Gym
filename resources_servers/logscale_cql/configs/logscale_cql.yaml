@@ -26,21 +26,13 @@ logscale_cql_simple_agent:
         type: responses_api_models
         name: policy_model
       datasets:
-      - name: train
-        type: train
-        jsonl_fpath: resources_servers/logscale_cql/data/train.jsonl
-        gitlab_identifier:
-          dataset_name: logscale_cql
-          version: 0.0.1
-          artifact_fpath: train.jsonl
-        license: NVIDIA Internal Use Only, Do Not Distribute
       - name: validation
         type: validation
-        jsonl_fpath: resources_servers/logscale_cql/data/validation.jsonl
+        jsonl_fpath: resources_servers/logscale_cql/data/all_questions.jsonl
         gitlab_identifier:
           dataset_name: logscale_cql
           version: 0.0.1
-          artifact_fpath: validation.jsonl
+          artifact_fpath: all_questions.jsonl
         license: NVIDIA Internal Use Only, Do Not Distribute
       - name: example
         type: example

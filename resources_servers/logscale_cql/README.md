@@ -222,7 +222,7 @@ curl -s http://127.0.0.1:<PORT>/generate_questions \
   -d '{"count": 10, "difficulty": 2}'
 ```
 
-`difficulty` 1 (easy) to 5 (adversarial). For benchmarking, use the train/validation JSONL instead (see Benchmark section).
+`difficulty` 1 (easy) to 5 (adversarial). For benchmarking, use the validation JSONL (see Benchmark section).
 
 ### 8. Score a Query
 
@@ -268,7 +268,7 @@ An invalid query gets `(0 + 0 + 0) / 3 = 0.0`.
 ### Configuration
 
 `configs/logscale_cql.yaml` defines the resources server **and** a simple
-agent with train/validation/example datasets:
+agent with one dataset (validation) and example:
 
 ```yaml
 logscale_cql_resources_server:
@@ -291,21 +291,13 @@ logscale_cql_simple_agent:
         type: responses_api_models
         name: policy_model
       datasets:
-      - name: train
-        type: train
-        jsonl_fpath: resources_servers/logscale_cql/data/train.jsonl
-        gitlab_identifier:
-          dataset_name: logscale_cql
-          version: 0.0.1
-          artifact_fpath: train.jsonl
-        license: NVIDIA Internal Use Only, Do Not Distribute
       - name: validation
         type: validation
-        jsonl_fpath: resources_servers/logscale_cql/data/validation.jsonl
+        jsonl_fpath: resources_servers/logscale_cql/data/all_questions.jsonl
         gitlab_identifier:
           dataset_name: logscale_cql
           version: 0.0.1
-          artifact_fpath: validation.jsonl
+          artifact_fpath: all_questions.jsonl
         license: NVIDIA Internal Use Only, Do Not Distribute
       - name: example
         type: example
@@ -320,9 +312,9 @@ logscale_cql_simple_agent:
 
 ### Benchmark a Model
 
-To benchmark a model on all questions (train + validation combined):
+To benchmark a model on the validation dataset:
 
-**From Gym repo only (no parent project):** Ensure `train.jsonl` and `validation.jsonl` exist under `data/` (e.g. from GitLab or a colleague). Then from Gym repo root:
+**From Gym repo only (no parent project):** Ensure `all_questions.jsonl` exists under `data/` (e.g. from GitLab via `ng_prepare_data` or a colleague). Then from Gym repo root:
 
 ```bash
 export LLM_MODEL=your/model  # used for output filename benchmark_rollouts_<model>.jsonl
@@ -332,11 +324,6 @@ bash resources_servers/logscale_cql/run_full_benchmark.sh
 **From Gym repo root (manual):**
 
 ```bash
-# Combine datasets into one file
-cat resources_servers/logscale_cql/data/train.jsonl \
-    resources_servers/logscale_cql/data/validation.jsonl \
-    > resources_servers/logscale_cql/data/all_questions.jsonl
-
 # Collect rollouts (Gym must be running from step 6)
 # The NL2CQL system prompt, fields/event types, and max_output_tokens
 # are baked into the JSONL by split_for_gym.py — no CLI overrides needed.
@@ -361,8 +348,10 @@ optionally `POLICY_BASE_URL`), restart `ng_run`, and re-run the
 
 ### Datasets
 
-Datasets are stored in the GitLab Model Registry under `logscale_cql`
-version `0.0.1`. To download them for `ng_prepare_data`:
+The dataset is stored in the GitLab Model Registry under `logscale_cql`
+version `0.0.1` (single artifact: `all_questions.jsonl`).
+
+**Download with `ng_prepare_data`** (for training prep; requires GitLab credentials in `env.yaml`):
 
 ```bash
 ng_prepare_data \
@@ -373,7 +362,17 @@ ng_prepare_data \
     +data_source=gitlab
 ```
 
-This requires GitLab credentials in `env.yaml` at the Gym root:
+**Download with `ng_download_dataset_from_gitlab`** (direct to benchmark data dir):
+
+```bash
+ng_download_dataset_from_gitlab \
+    +dataset_name=logscale_cql \
+    +version=0.0.1 \
+    +artifact_fpath=all_questions.jsonl \
+    +output_fpath=resources_servers/logscale_cql/data/all_questions.jsonl
+```
+
+GitLab credentials in `env.yaml` at the Gym root:
 
 ```yaml
 mlflow_tracking_uri: https://gitlab-master.nvidia.com/api/v4/projects/241584/ml/mlflow
@@ -382,7 +381,7 @@ mlflow_tracking_token: <your-gitlab-api-token>
 
 ### Baselines
 
-With LLM judge enabled (INFERENCE_API_KEY set, judge model `bedrock-claude-opus-4-6`), full benchmark on 223 questions (train + validation):
+With LLM judge enabled (INFERENCE_API_KEY set, judge model `bedrock-claude-opus-4-6`), full benchmark on all_questions.jsonl:
 
 | Model | Reward | Validity | Semantic (avg) | Execution (avg) | Exec success |
 |---|---|---|---|---|---|
@@ -405,7 +404,5 @@ To generate your own baselines: run `resources_servers/logscale_cql/run_full_ben
 | `prompt_templates/` | Judge and question-generation prompts (text files) |
 | `data/synthetic_falcon_events.csv` | 5000 synthetic CrowdStrike Falcon events |
 | `data/example.jsonl` | 5 example questions |
-| `data/train.jsonl` | Training questions (download via `ng_prepare_data`) |
-| `data/validation.jsonl` | Validation questions (download via `ng_prepare_data`) |
-| `data/all_questions.jsonl` | Combined train+validation for benchmarking |
+| `data/all_questions.jsonl` | All benchmark questions (download via `ng_prepare_data` or `ng_download_dataset_from_gitlab`) |
 | `data/benchmark_rollouts.jsonl` | Output from `ng_collect_rollouts` (or `benchmark_rollouts_<model>.jsonl` with `run_full_benchmark.sh`) |
